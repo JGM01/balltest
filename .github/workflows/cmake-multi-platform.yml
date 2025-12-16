@@ -1,0 +1,66 @@
+name: CI
+
+on:
+  push:
+    branches: [ main, "release/**" ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  build-and-test:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            config: Debug
+            preset-build: debug
+            preset-test: Debug
+
+          - os: ubuntu-latest
+            config: Release
+            preset-build: release
+            preset-test: Release
+
+          - os: macos-latest
+            config: Debug
+            preset-build: debug
+            preset-test: Debug
+
+          - os: macos-latest
+            config: Release
+            preset-build: release
+            preset-test: Release
+
+          - os: windows-latest
+            config: Debug
+            preset-build: debug
+            preset-test: Debug
+
+          - os: windows-latest
+            config: Release
+            preset-build: release
+            preset-test: Release
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install CMake + Ninja
+        uses: lukka/get-cmake@latest
+
+      - name: Cache build folder
+        uses: actions/cache@v4
+        with:
+          path: build
+          key: ${{ runner.os }}-${{ matrix.config }}-${{ hashFiles('**/CMakeLists.txt', 'cmake/**/*.cmake') }}
+
+      - name: Configure
+        run: cmake --preset default
+
+      - name: Build
+        run: cmake --build --preset ${{ matrix.preset-build }}
+
+      - name: Test
+        run: ctest --preset default -C ${{ matrix.preset-test }}
