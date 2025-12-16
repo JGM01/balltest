@@ -33,7 +33,7 @@ target_link_libraries(myapp PRIVATE myproj::myproj)
 
 include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/GoogleTest.cmake)
 
-target_link_libraries(myapp PRIVATE webgpu_dawn)
+target_link_libraries(myapp PRIVATE webgpu_dawn webgpu_glfw glfw)
 
 if(BUILD_TESTING)
     enable_testing()
