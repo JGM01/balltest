@@ -33,8 +33,6 @@ target_link_libraries(myapp PRIVATE myproj::myproj)
 
 include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/GoogleTest.cmake)
 
-target_link_libraries(myapp PRIVATE webgpu_dawn webgpu_glfw glfw)
-
 if(BUILD_TESTING)
     enable_testing()
 	
@@ -42,5 +40,13 @@ if(BUILD_TESTING)
     target_link_libraries(test_greeter PRIVATE myproj::myproj GTest::gtest_main)
     include(GoogleTest)
     gtest_discover_tests(test_greeter)
+endif()
+
+if(EMSCRIPTEN)
+  set_target_properties(myapp PROPERTIES SUFFIX ".html")
+  target_link_libraries(myapp PRIVATE emdawnwebgpu_cpp webgpu_glfw)
+  target_link_options(myapp PRIVATE "-sASYNCIFY=1" "-sUSE_GLFW=3")
+else()
+  target_link_libraries(myapp PRIVATE webgpu_dawn webgpu_glfw glfw)
 endif()
 

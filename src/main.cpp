@@ -1,54 +1,50 @@
-#include "GLFW/glfw3.h"
-#include "webgpu/webgpu_cpp.h"
-#include <algorithm>
-#include <cstdint>
 #include <cstdio>
-#include <cstdlib>
+#include <iostream>
 
-constexpr int viewWidth = 512;
-constexpr int viewHeight = 512;
+#include <GLFW/glfw3.h>
+#if defined(__EMSCRIPTEN__)
+#include <emscripten/emscripten.h>
+#endif
+#include <dawn/webgpu_cpp_print.h>
+#include <webgpu/webgpu_cpp.h>
+#include <webgpu/webgpu_glfw.h>
 
-// An instance creates an opening for the program
-// to communicate with the OS and determine the underlying
-// graphics APIs to use.
 wgpu::Instance instance;
-
-// An adapter is what lets you pick the actual hardware you
-// want to use. The adapter returns a *promise*, not a device. No
-// allocations, no shaders, just information about the potential device.
 wgpu::Adapter adapter;
-
-// Where code is ran, and failures can occur. Gives the ability to act.
 wgpu::Device device;
+wgpu::RenderPipeline pipeline;
+
+wgpu::Surface surface;
+wgpu::TextureFormat format;
+constexpr uint32_t width = 512;
+constexpr uint32_t height = 512;
+
+void configureSurface() {
+  wgpu::SurfaceCapabilities capabilities;
+  surface.GetCapabilities(adapter, &capabilities);
+  format = capabilities.formats[0];
+
+  wgpu::SurfaceConfiguration config{
+      .device = device, .format = format, .width = width, .height = height};
+  surface.Configure(&config);
+}
 
 void init() {
-  const auto timedWaitAnyFeature = wgpu::InstanceFeatureName::TimedWaitAny;
-  const auto instanceDescriptor = wgpu::InstanceDescriptor{
-      .requiredFeatureCount = 1,
-      .requiredFeatures = &timedWaitAnyFeature,
-  };
-  instance = wgpu::CreateInstance(&instanceDescriptor);
+  static const auto kTimedWaitAny = wgpu::InstanceFeatureName::TimedWaitAny;
+  wgpu::InstanceDescriptor instanceDesc{.requiredFeatureCount = 1,
+                                        .requiredFeatures = &kTimedWaitAny};
+  instance = wgpu::CreateInstance(&instanceDesc);
 
-  // Creating a future (promise) by making a request via the instance for an
-  // adapter that satisfies some constraints.
   wgpu::Future f1 = instance.RequestAdapter(
       nullptr, wgpu::CallbackMode::WaitAnyOnly,
-
-      // This callback function is ran when the request returns some result
-      // (pass or fail, need to handle either).
       [](wgpu::RequestAdapterStatus status, wgpu::Adapter a,
-         wgpu::StringView msg) {
-        // if bad
+         wgpu::StringView message) {
         if (status != wgpu::RequestAdapterStatus::Success) {
-          printf("Request Adapter: %s\n", msg.data);
+          printf("Request Adapter: %s\n", message.data);
           exit(0);
         }
-
-        // if good
         adapter = std::move(a);
       });
-
-  // do the future.
   instance.WaitAny(f1, UINT64_MAX);
 
   wgpu::DeviceDescriptor desc{};
@@ -58,13 +54,12 @@ void init() {
     printf("Error: %s\nMessage: %s\n", errorType, message.data);
   });
 
-  // Try to use gain access to the device.
   wgpu::Future f2 = adapter.RequestDevice(
       &desc, wgpu::CallbackMode::WaitAnyOnly,
       [](wgpu::RequestDeviceStatus status, wgpu::Device d,
-         wgpu::StringView msg) {
+         wgpu::StringView message) {
         if (status != wgpu::RequestDeviceStatus::Success) {
-          printf("Request Device: %s\n", msg.data);
+          printf("Request Device: %s\n", message.data);
           exit(0);
         }
         device = std::move(d);
@@ -72,25 +67,85 @@ void init() {
   instance.WaitAny(f2, UINT64_MAX);
 }
 
+constexpr char shaderCode[] = R"(
+    @vertex fn vertexMain(@builtin(vertex_index) i : u32) ->
+      @builtin(position) vec4f {
+        const pos = array(vec2f(0, 1), vec2f(-1, -1), vec2f(1, -1));
+        return vec4f(pos[i], 0, 1);
+    }
+    @fragment fn fragmentMain() -> @location(0) vec4f {
+        return vec4f(1, 0, 0, 1);
+    }
+)";
+
+void CreateRenderPipeline() {
+  wgpu::ShaderSourceWGSL wgsl{{.code = shaderCode}};
+
+  wgpu::ShaderModuleDescriptor shaderModuleDescriptor{.nextInChain = &wgsl};
+  wgpu::ShaderModule shaderModule =
+      device.CreateShaderModule(&shaderModuleDescriptor);
+
+  wgpu::ColorTargetState colorTargetState{.format = format};
+
+  wgpu::FragmentState fragmentState{
+      .module = shaderModule, .targetCount = 1, .targets = &colorTargetState};
+
+  wgpu::RenderPipelineDescriptor descriptor{.vertex = {.module = shaderModule},
+                                            .fragment = &fragmentState};
+  pipeline = device.CreateRenderPipeline(&descriptor);
+}
+
+void render() {
+  wgpu::SurfaceTexture surfaceTexture;
+  surface.GetCurrentTexture(&surfaceTexture);
+
+  wgpu::RenderPassColorAttachment attachment{
+      .view = surfaceTexture.texture.CreateView(),
+      .loadOp = wgpu::LoadOp::Clear,
+      .storeOp = wgpu::StoreOp::Store};
+
+  wgpu::RenderPassDescriptor renderpass{.colorAttachmentCount = 1,
+                                        .colorAttachments = &attachment};
+
+  wgpu::CommandEncoder encoder = device.CreateCommandEncoder();
+  wgpu::RenderPassEncoder pass = encoder.BeginRenderPass(&renderpass);
+  pass.SetPipeline(pipeline);
+  pass.Draw(3);
+  pass.End();
+  wgpu::CommandBuffer commands = encoder.Finish();
+  device.GetQueue().Submit(1, &commands);
+}
+
+void initGraphics() {
+  configureSurface();
+  CreateRenderPipeline();
+}
+
 void start() {
-  if (!glfwInit())
+  if (!glfwInit()) {
     return;
+  }
 
   glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
+  GLFWwindow *window =
+      glfwCreateWindow(width, height, "Ball simulator", nullptr, nullptr);
+  surface = wgpu::glfw::CreateSurfaceForWindow(instance, window);
 
-  auto *window =
-      glfwCreateWindow(viewWidth, viewHeight, "Ball Sim", nullptr, nullptr);
+  initGraphics();
 
+#if defined(__EMSCRIPTEN__)
+  emscripten_set_main_loop(render, 0, false);
+#else
   while (!glfwWindowShouldClose(window)) {
     glfwPollEvents();
+    render();
+    surface.Present();
+    instance.ProcessEvents();
   }
+#endif
 }
 
 int main() {
-  printf("Starting sim...\n");
-
   init();
   start();
-
-  return EXIT_SUCCESS;
 }
