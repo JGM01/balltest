@@ -1,5 +1,11 @@
-# Minimal CMake Project
+# Balls
 
+Clone using:
+```bash
+git clone --recurse-submodules https://github.com/JGM01/balltest.git
+```
+
+## Build
 Configure (creates build/ folder automatically)
 ```bash 
 cmake --preset default
