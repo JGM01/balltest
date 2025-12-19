@@ -1,5 +1,7 @@
 #include "GLFW/glfw3.h"
 #include "webgpu/webgpu_cpp.h"
+#include <algorithm>
+#include <cstdint>
 #include <cstdio>
 #include <cstdlib>
 
@@ -26,6 +28,48 @@ void init() {
       .requiredFeatures = &timedWaitAnyFeature,
   };
   instance = wgpu::CreateInstance(&instanceDescriptor);
+
+  // Creating a future (promise) by making a request via the instance for an
+  // adapter that satisfies some constraints.
+  wgpu::Future f1 = instance.RequestAdapter(
+      nullptr, wgpu::CallbackMode::WaitAnyOnly,
+
+      // This callback function is ran when the request returns some result
+      // (pass or fail, need to handle either).
+      [](wgpu::RequestAdapterStatus status, wgpu::Adapter a,
+         wgpu::StringView msg) {
+        // if bad
+        if (status != wgpu::RequestAdapterStatus::Success) {
+          printf("Request Adapter: %s\n", msg.data);
+          exit(0);
+        }
+
+        // if good
+        adapter = std::move(a);
+      });
+
+  // do the future.
+  instance.WaitAny(f1, UINT64_MAX);
+
+  wgpu::DeviceDescriptor desc{};
+  desc.SetUncapturedErrorCallback([](const wgpu::Device &,
+                                     wgpu::ErrorType errorType,
+                                     wgpu::StringView message) {
+    printf("Error: %s\nMessage: %s\n", errorType, message.data);
+  });
+
+  // Try to use gain access to the device.
+  wgpu::Future f2 = adapter.RequestDevice(
+      &desc, wgpu::CallbackMode::WaitAnyOnly,
+      [](wgpu::RequestDeviceStatus status, wgpu::Device d,
+         wgpu::StringView msg) {
+        if (status != wgpu::RequestDeviceStatus::Success) {
+          printf("Request Device: %s\n", msg.data);
+          exit(0);
+        }
+        device = std::move(d);
+      });
+  instance.WaitAny(f2, UINT64_MAX);
 }
 
 void start() {
